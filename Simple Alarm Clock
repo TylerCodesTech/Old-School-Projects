@@ -1,0 +1,187 @@
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, simpledialog
+import time
+import threading
+import pygame
+
+class AlarmClock:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Alarm Clock")
+
+        self.alarms = []  # List to store alarm information (time, days, and sound file paths)
+        self.time_format = tk.StringVar(value="24-hour")
+        self.hour_var = tk.StringVar(value="")
+        self.minute_var = tk.StringVar(value="")
+        self.ampm_var = tk.StringVar(value="AM")
+
+        # Initialize pygame mixer for sound
+        pygame.mixer.init()
+
+        # Initialize update_time_interval as an instance variable
+        self.update_time_interval = 1000  # Update current time every 1 second (1000 milliseconds)
+
+        self.create_widgets()
+        self.update_current_time()  # Initialize the current time display
+        self.root.after(self.update_time_interval, self.update_current_time)
+    def create_widgets(self):
+        ttk.Label(self.root, text="Hour:").grid(row=0, column=0)
+        ttk.Label(self.root, text="Minutes:").grid(row=0, column=2)
+
+        self.hour_entry = ttk.Combobox(self.root, textvariable=self.hour_var, values=[str(i).zfill(2) for i in range(1, 13)])
+        self.minute_entry = ttk.Combobox(self.root, textvariable=self.minute_var, values=[str(i).zfill(2) for i in range(60)])
+
+        self.hour_entry.grid(row=0, column=1)
+        self.minute_entry.grid(row=0, column=3)
+
+        ttk.Label(self.root, text="AM/PM:").grid(row=1, column=0)
+        self.ampm_combo = ttk.Combobox(self.root, textvariable=self.ampm_var, values=["AM", "PM"])
+        self.ampm_combo.grid(row=1, column=1)
+
+        ttk.Button(self.root, text="Set Alarm", command=self.set_alarm).grid(row=1, column=3)
+        ttk.Label(self.root, text="Time Format:").grid(row=2, column=0)
+        time_format_combo = ttk.Combobox(self.root, textvariable=self.time_format, values=["12-hour", "24-hour"])
+        time_format_combo.grid(row=2, column=1)
+        time_format_combo.bind("<<ComboboxSelected>>", self.update_time_format)
+
+        ttk.Label(self.root, text="Custom Sound:").grid(row=3, column=0)
+        ttk.Button(self.root, text="Browse", command=self.browse_sound).grid(row=3, column=1)
+        ttk.Button(self.root, text="Preview Sound", command=self.preview_sound).grid(row=3, column=2)
+
+        ttk.Label(self.root, text="Repeat on Days:").grid(row=4, column=0)
+        self.days_var = {}
+        days_checkboxes = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        for i, day in enumerate(days_checkboxes):
+            self.days_var[day] = tk.BooleanVar()
+            ttk.Checkbutton(self.root, text=day, variable=self.days_var[day]).grid(row=4, column=i + 1)
+
+        self.alarm_listbox = tk.Listbox(self.root)
+        self.alarm_listbox.grid(row=5, column=0, columnspan=4)
+        self.alarm_listbox.bind("<<ListboxSelect>>", self.select_alarm)
+
+        ttk.Button(self.root, text="Delete Alarm", command=self.confirm_delete_alarm).grid(row=6, column=0)
+        ttk.Button(self.root, text="Dismiss Alarm", command=self.dismiss_alarm).grid(row=6, column=1)
+
+        self.current_time_label = ttk.Label(self.root, text="Current Time: ")
+        self.current_time_label.grid(row=7, column=0, columnspan=4)
+
+    def set_alarm(self):
+        alarm_time = self.get_alarm_time()
+        if alarm_time is None:
+            return  # User canceled the input
+
+        # Get selected days for repeating alarms
+        days = [day for day, var in self.days_var.items() if var.get()]
+
+        # Allow users to select a custom sound file
+        sound_file = self.selected_sound_file if hasattr(self, 'selected_sound_file') else None
+
+        self.alarms.append((alarm_time, days, sound_file))
+        self.alarm_listbox.insert(tk.END, alarm_time + " (" + ', '.join(days) + ")")
+
+    def get_alarm_time(self):
+        if self.time_format.get() == "12-hour":
+            hour = self.hour_var.get()
+            minute = self.minute_var.get()
+            ampm = self.ampm_var.get()
+            if not hour or not minute:
+                messagebox.showerror("Error", "Please enter both hour and minute.")
+                return None
+
+            alarm_time = f"{hour}:{minute} {ampm}"
+        else:
+            hour = self.hour_var.get()
+            minute = self.minute_var.get()
+            if not hour or not minute:
+                messagebox.showerror("Error", "Please enter both hour and minute.")
+                return None
+
+            alarm_time = f"{hour}:{minute}"
+
+        try:
+            time.strptime(alarm_time, "%I:%M %p" if self.time_format.get() == "12-hour" else "%H:%M %p")
+        except ValueError:
+            messagebox.showerror("Error", "Invalid time format. Please use the correct format.")
+            return None
+
+        return alarm_time
+
+    def update_time_format(self, event=None):
+        if self.time_format.get() == "24-hour":
+            self.ampm_var.set("")  # Clear the AM/PM value
+            self.ampm_combo.configure(state="disabled")  # Gray out the AM/PM selection
+        else:
+            self.ampm_combo.configure(state="readonly")  # Enable the AM/PM selection
+
+    def confirm_delete_alarm(self):
+        if hasattr(self, 'selected_alarm'):
+            confirm = messagebox.askokcancel("Confirm Delete", "Are you sure you want to delete this alarm?")
+            if confirm:
+                self.delete_alarm()
+
+    def select_alarm(self, event):
+        selected_index = self.alarm_listbox.curselection()
+        if selected_index:
+            self.selected_alarm = self.alarms[selected_index[0]]
+
+    def delete_alarm(self):
+        try:
+            index = self.alarms.index(self.selected_alarm)
+            self.alarms.pop(index)
+            self.alarm_listbox.delete(index)
+        except ValueError:
+            pass
+
+    def dismiss_alarm(self):
+        if hasattr(self, 'selected_alarm'):
+            self.alarms.remove(self.selected_alarm)
+            self.alarm_listbox.delete(self.alarm_listbox.curselection())
+
+    def browse_sound(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Sound Files", "*.wav;*.mp3")])
+        if file_path:
+            self.selected_sound_file = file_path
+
+    def preview_sound(self):
+        if hasattr(self, 'selected_sound_file') and self.selected_sound_file:
+            try:
+                pygame.mixer.music.load(self.selected_sound_file)
+                pygame.mixer.music.play()
+            except Exception as e:
+                print(f"Error playing sound: {e}")
+        else:
+            messagebox.showwarning("Preview Sound", "No sound file selected.")
+
+    def update_current_time(self):
+        # Get the current time based on the selected time format
+        current_time = time.strftime("%I:%M:%S %p" if self.time_format.get() == "12-hour" else "%H:%M:%S %p")
+        # Update the Label to display the current time
+        self.current_time_label.config(text=f"Current Time: {current_time}")
+        # Schedule the next update
+        self.root.after(self.update_time_interval, self.update_current_time)
+
+    def start_alarm_thread(self):
+        while True:
+            current_time = time.strftime("%I:%M %p" if self.time_format.get() == "12-hour" else "%H:%M %p")
+            for alarm_time, days, sound_file in self.alarms:
+                if current_time == alarm_time and time.strftime("%A").capitalize() in days:
+                    tk.messagebox.showinfo("Alarm", "Time to wake up!")
+                    if sound_file:
+                        pygame.mixer.music.load(sound_file)
+                        pygame.mixer.music.play()
+                    self.dismiss_alarm()
+            time.sleep(1)
+
+    def run(self):
+        alarm_thread = threading.Thread(target=self.start_alarm_thread)
+        alarm_thread.daemon = True
+        alarm_thread.start()
+
+def main():
+    root = tk.Tk()
+    app = AlarmClock(root)
+    app.run()
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
